@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Pod
+
+metadata:
+  name: respo-quotes
+
+spec:
+  containers:
+    - name: web
+      image: respo-quotes-v2:2.0
+      ports:
+        - containerPort: 80

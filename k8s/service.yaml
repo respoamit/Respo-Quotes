@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: respo-quotes
+  namespace: quotes-dev
+
+spec: 
+  selector:
+    app: respo-quotes
+
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+
+  type: ClusterIP

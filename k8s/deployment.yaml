@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: respo-quotes
+  namespace: quotes-dev
+
+spec:
+  replicas: 4
+
+  selector:
+    matchLabels:
+      app: respo-quotes
+
+  template:
+    metadata:
+      labels:
+        app: respo-quotes
+
+    spec:
+      containers:
+        - name: web
+          image: respo-quotes-v2:2.0
+
+          envFrom:
+            - configMapRef:
+                name: respo-quotes-config
+
+          ports:
+            - containerPort: 80
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+          
+
+          startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 30
+            periodSeconds: 2
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+

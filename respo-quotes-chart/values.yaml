@@ -1,0 +1,46 @@
+frontend:
+  replicaCount: 4
+
+  image:
+    repository: asia-south1-docker.pkg.dev/protean-beaker-508610-j3/respo-quotes/respo-quotes-v2
+    tag: "2.1"
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 80
+    
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "128Mi"
+
+api:
+  replicaCount: 4
+
+  image:
+    repository: asia-south1-docker.pkg.dev/protean-beaker-508610-j3/respo-quotes/api-respo-quotes-v2
+    tag: "2.1"
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  cpuTarget: 70
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+ingress:
+  enabled: true
+  host: amitvarma.online

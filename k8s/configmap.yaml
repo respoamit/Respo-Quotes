@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+  name: respo-quotes-co  nfig
+  namespace: quotes-dev
+
+data:
+  environment: "production"
+  app_name: "respo-quotes"

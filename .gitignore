@@ -1,0 +1,27 @@
+
+# Terraform state and local configuration
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+*.tfvars.json
+crash.log
+
+# Credentials and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local development
+.DS_Store
+Thumbs.db

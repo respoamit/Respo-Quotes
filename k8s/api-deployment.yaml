@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: api
+  namespace: quotes-dev
+
+spec:
+  replicas: 4
+
+  selector:
+    matchLabels:
+      app: api
+
+  template:
+    metadata:
+      labels:
+        app: api
+
+    spec:
+      containers:
+        - name: api
+          image: api-respo-quotes-v2:2.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 5000
+
+          volumeMounts:
+            - name: quotes-storage
+              mountPath: /app/data
+
+      volumes:
+        - name: quotes-storage
+          persistentVolumeClaim:
+            claimName: quotes-data

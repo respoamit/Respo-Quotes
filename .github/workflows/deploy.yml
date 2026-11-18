@@ -1,0 +1,280 @@
+name: Respo Quotes CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: respo-quotes-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: protean-beaker-508610-j3
+  REGION: asia-south1
+  ZONE: asia-south1-a
+  CLUSTER: respo-quotes-gke
+  NAMESPACE: quotes-dev
+
+  REGISTRY: asia-south1-docker.pkg.dev
+  REPOSITORY: respo-quotes
+
+  FRONTEND_IMAGE: respo-quotes-v2
+  API_IMAGE: api-respo-quotes-v2
+
+jobs:
+
+  # ============================================================
+  # 1. API TESTS
+  # ============================================================
+  test:
+    name: Test API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install API dependency
+        run: pip install Flask
+
+      - name: Run API tests
+        run: python -m unittest discover -s api -p "test_*.py"
+
+
+  # ============================================================
+  # 2. HELM VALIDATION
+  # ============================================================
+  helm-validation:
+    name: Validate Helm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: |
+          helm lint ./respo-quotes-chart
+
+      - name: Helm template
+        run: |
+          helm template respo-quotes ./respo-quotes-chart \
+            --namespace quotes-dev \
+            --set-string frontend.image.tag=${GITHUB_SHA} \
+            --set-string api.image.tag=${GITHUB_SHA}
+
+
+  # ============================================================
+  # 3. DOCKER BUILD VALIDATION
+  # ============================================================
+  docker-validation:
+    name: Validate Docker Builds
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            -t respo-quotes-frontend:test \
+            .
+
+      - name: Build API image
+        run: |
+          docker build \
+            -f api/Dockerfile \
+            -t respo-quotes-api:test \
+            .
+
+
+  # ============================================================
+  # 4. DEPLOY TO PRODUCTION
+  # ============================================================
+  build-and-deploy:
+    name: Build and Deploy
+    needs:
+      - test
+      - helm-validation
+      - docker-validation
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------------
+      # GCP AUTHENTICATION
+      # ----------------------------------------------------------
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: github-actions-deployer@protean-beaker-508610-j3.iam.gserviceaccount.com
+
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+
+      # ----------------------------------------------------------
+      # ARTIFACT REGISTRY
+      # ----------------------------------------------------------
+      - name: Configure Docker authentication
+        run: |
+          gcloud auth configure-docker \
+            asia-south1-docker.pkg.dev \
+            --quiet
+
+
+      # ----------------------------------------------------------
+      # BUILD FRONTEND
+      # ----------------------------------------------------------
+      - name: Build frontend image
+        run: |
+          docker build \
+            -t $REGISTRY/$PROJECT_ID/$REPOSITORY/$FRONTEND_IMAGE:$GITHUB_SHA \
+            .
+
+
+      # ----------------------------------------------------------
+      # PUSH FRONTEND
+      # ----------------------------------------------------------
+      - name: Push frontend image
+        run: |
+          docker push \
+            $REGISTRY/$PROJECT_ID/$REPOSITORY/$FRONTEND_IMAGE:$GITHUB_SHA
+
+
+      # ----------------------------------------------------------
+      # BUILD API
+      # ----------------------------------------------------------
+      - name: Build API image
+        run: |
+          docker build \
+            -f api/Dockerfile \
+            -t $REGISTRY/$PROJECT_ID/$REPOSITORY/$API_IMAGE:$GITHUB_SHA \
+            .
+
+
+      # ----------------------------------------------------------
+      # PUSH API
+      # ----------------------------------------------------------
+      - name: Push API image
+        run: |
+          docker push \
+            $REGISTRY/$PROJECT_ID/$REPOSITORY/$API_IMAGE:$GITHUB_SHA
+
+
+      # ----------------------------------------------------------
+      # GKE AUTHENTICATION
+      # ----------------------------------------------------------
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER }}
+          location: ${{ env.ZONE }}
+          project_id: ${{ env.PROJECT_ID }}
+
+
+      # ----------------------------------------------------------
+      # HELM
+      # ----------------------------------------------------------
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+
+      # ----------------------------------------------------------
+      # FINAL HELM VALIDATION
+      # ----------------------------------------------------------
+      - name: Validate deployment manifests
+        run: |
+          helm lint ./respo-quotes-chart
+
+          helm template respo-quotes ./respo-quotes-chart \
+            --namespace $NAMESPACE \
+            --set-string frontend.image.tag=$GITHUB_SHA \
+            --set-string api.image.tag=$GITHUB_SHA
+
+
+      # ----------------------------------------------------------
+      # DEPLOY
+      # ----------------------------------------------------------
+      - name: Deploy using Helm
+        run: |
+          helm upgrade --install respo-quotes ./respo-quotes-chart \
+            --namespace $NAMESPACE \
+            --set-string frontend.image.tag=$GITHUB_SHA \
+            --set-string api.image.tag=$GITHUB_SHA \
+            --wait \
+            --timeout 10m
+
+
+      # ----------------------------------------------------------
+      # ROLLOUT VERIFICATION
+      # ----------------------------------------------------------
+      - name: Verify frontend rollout
+        run: |
+          kubectl rollout status \
+            deployment/respo-quotes \
+            -n $NAMESPACE \
+            --timeout=300s
+
+
+      - name: Verify API rollout
+        run: |
+          kubectl rollout status \
+            deployment/api \
+            -n $NAMESPACE \
+            --timeout=300s
+
+
+      # ----------------------------------------------------------
+      # POD VERIFICATION
+      # ----------------------------------------------------------
+      - name: Verify pods
+        run: |
+          kubectl get pods -n $NAMESPACE
+
+
+      # ----------------------------------------------------------
+      # PUBLIC API VERIFICATION
+      # ----------------------------------------------------------
+      - name: Verify public API
+        run: |
+          curl \
+            --fail \
+            --retry 10 \
+            --retry-delay 6 \
+            --retry-connrefused \
+            https://amitvarma.online/api/quotes

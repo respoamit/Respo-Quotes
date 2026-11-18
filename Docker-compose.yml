@@ -1,0 +1,16 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: respo-quotes-v2
+    ports:
+      - "8080:80"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: respo-api
+    expose:
+      - "5000"
